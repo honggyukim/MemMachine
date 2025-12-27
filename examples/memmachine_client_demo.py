@@ -202,10 +202,6 @@ def demo_memory_operations() -> None:
     print("\nAdding memories...")
     memories_to_add = [
         ("I like pizza and pasta", {"type": "preference", "category": "food"}),
-        ("I work as a software engineer", {"type": "fact", "category": "work"}),
-        ("I live in San Francisco", {"type": "fact", "category": "location"}),
-        ("I prefer working remotely", {"type": "preference", "category": "work"}),
-        ("I enjoy hiking on weekends", {"type": "preference", "category": "hobby"}),
     ]
 
     for content, metadata in memories_to_add:
@@ -219,9 +215,6 @@ def demo_memory_operations() -> None:
     print("\nSearching memories...")
     search_queries = [
         "What do I like to eat?",
-        "Tell me about my work",
-        "What are my hobbies?",
-        "Where do I live?",
     ]
 
     for query in search_queries:
@@ -328,8 +321,6 @@ def main() -> None:
     # Run demos
     try:
         demo_memory_operations()
-        demo_advanced_memory_features()
-        demo_multiple_users()
 
         print_section("Demo Complete")
 
