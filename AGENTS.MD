@@ -207,11 +207,7 @@ curl -X POST "http://localhost:8080/api/v2/projects" \
   -d '{
     "org_id": "my-org",
     "project_id": "my-project",
-    "description": "My project description",
-    "config": {
-      "embedder": "my-openai-embedder",
-      "reranker": "my-rrf-reranker"
-    }
+    "description": "My project description"
   }'
 ```
 

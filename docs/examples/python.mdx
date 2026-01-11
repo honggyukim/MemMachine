@@ -36,14 +36,21 @@ from memmachine import MemMachineClient
 # Replace 'http://localhost:8080' with your server's URL if different.
 client = MemMachineClient(base_url="http://localhost:8080")
 
-# 2. Create a Project
+# 2. Get or Create a Project
 # Projects organize memories under an Organization.
-# If the project already exists, this will return the existing one.
-project = client.create_project(
-    org_id="my-org",
-    project_id="hello-world-project",
-    description="My first MemMachine project"
-)
+try:
+    # Get if there is an existing project
+    project = client.get_project(
+        org_id="my-org",
+        project_id="hello-world-project",
+    )
+except Exception:
+    # Otherwise, create a project.
+    project = client.create_project(
+        org_id="my-org",
+        project_id="hello-world-project",
+        description="My first MemMachine project"
+    )
 
 print(f"Working with project: {project.org_id}/{project.project_id}")
 
