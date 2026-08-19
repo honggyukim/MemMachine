@@ -1,0 +1,126 @@
+# Container-free configuration for local development and testing.
+#
+# Every store is a SQLite file in the working directory, so no Neo4j, Postgres
+# or Qdrant instance is needed. Only a language model and an embedder have to be
+# reachable; the defaults below point at a local Ollama.
+#
+#   memmachine-nltk-setup      # once, for the bm25 reranker's stopwords
+#   MEMORY_CONFIG=configuration.yml memmachine-server
+#
+# aiosqlite and sqlite-vec are hard dependencies of the server package, so
+# nothing extra has to be installed.
+#
+# This is a development setup. SQLite serialises writes and holds the vector
+# index in a single file, so use Postgres/Neo4j or Qdrant/Milvus for anything
+# concurrent. See episodic_memory_config.cpu.sample for that.
+
+logging:
+  path: mem-machine.log
+  level: info #| debug | error
+
+episode_store:
+  database: local_sql
+
+episodic_memory:
+  long_term_memory:
+    # The event backend stores episodes in a VectorStore plus a relational
+    # SegmentStore. The default declarative backend is not used here because it
+    # requires a VectorGraphStore, which SQLite cannot provide.
+    backend: event
+    vector_store: local_vector_store
+    segment_store: local_sql
+    embedder: ollama_embedder
+    reranker: my_reranker_id              # optional; omit to use embedding scores
+  short_term_memory:
+    llm_model: ollama_model
+    message_capacity: 500
+
+retrieval_agent:
+  llm_model: ollama_model
+  reranker: my_reranker_id
+
+semantic_memory:
+  llm_model: ollama_model
+  embedding_model: ollama_embedder
+  # storage_backend must be set explicitly. The default of `auto` picks the
+  # provider-specific path, which issues `CREATE EXTENSION vector` and fails on
+  # SQLite. `vector_store` keeps feature metadata in the relational database and
+  # the embeddings in a VectorStore instead.
+  storage_backend: vector_store
+  feature_store: local_sql
+  vector_collection: local_vector_store
+  vector_dimensions: 768                  # must match the embedder's dimensions
+  vector_similarity_metric: cosine
+  config_database: local_sql
+
+session_manager:
+  database: local_sql
+
+prompt:
+  default_project_categories:
+  - profile_prompt
+
+resources:
+  databases:
+    # Relational store: episodes, semantic features, sessions and config.
+    local_sql:
+      provider: sqlite
+      config:
+        path: memmachine.db
+    # Vector store for both the event-backed long-term memory and the
+    # vector-backed semantic memory.
+    local_vector_store:
+      provider: sqlite_vec_vector_store
+      config:
+        path: memmachine_vectors.db
+    #
+    # Alternative: the pure-Python vector store, which needs no sqlite-vec
+    # extension but scans linearly and is slower on large collections.
+    # local_vector_store:
+    #   provider: sqlite_vector_store
+    #   config:
+    #     path: memmachine_vectors.db
+
+  embedders:
+    ollama_embedder:
+      provider: openai
+      config:
+        max_input_length: 2048
+        model: "nomic-embed-text"
+        api_key: "ollama"                 # ignored by Ollama, but required
+        base_url: "http://localhost:11434/v1"
+        dimensions: 768
+    #
+    # openai_embedder:
+    #   provider: openai
+    #   config:
+    #     max_input_length: 2048
+    #     model: "text-embedding-3-small"
+    #     api_key: <YOUR_API_KEY_HERE>
+    #     dimensions: 1536                # keep semantic_memory.vector_dimensions in sync
+
+  language_models:
+    ollama_model:
+      provider: openai-chat-completions
+      config:
+        model: "llama3"
+        api_key: "ollama"                 # ignored by Ollama, but required
+        base_url: "http://localhost:11434/v1"
+    #
+    # openai_model:
+    #   provider: openai-responses
+    #   config:
+    #     model: "gpt-4o-mini"
+    #     api_key: <YOUR_API_KEY_HERE>
+
+  rerankers:
+    my_reranker_id:
+      provider: "rrf-hybrid"
+      config:
+        reranker_ids:
+          - id_ranker_id
+          - bm_ranker_id
+    id_ranker_id:
+      provider: "identity"
+    bm_ranker_id:
+      provider: "bm25"
