@@ -114,6 +114,12 @@ server_pid() {
     echo "$pid"
 }
 
+# Whether anything is answering on the port. This is the authority on "is the
+# server up": the recorded pid can be gone while the server it started is not.
+port_in_use() {
+    curl -sf -m 2 "$BASE_URL/health" >/dev/null 2>&1
+}
+
 wait_until_healthy() {
     local count=0
     until curl -sf -m 2 "$BASE_URL/health" >/dev/null 2>&1; do
@@ -133,6 +139,11 @@ start_server() {
     if server_pid >/dev/null; then
         print_warning "Server is already running (pid $(server_pid)) on port $PORT"
         return 0
+    fi
+    if port_in_use; then
+        print_error "Something already answers $BASE_URL/health but is not in $PIDFILE."
+        print_error "Stop it by hand, or pick a free port with MEMMACHINE_DEV_PORT."
+        exit 1
     fi
     check_prerequisites
     prepare_work_dir
@@ -164,18 +175,41 @@ run_server() {
 stop_server() {
     local pid
     if ! pid=$(server_pid); then
+        if port_in_use; then
+            print_error "Nothing tracked in $PIDFILE, but $BASE_URL/health still answers."
+            print_error "An untracked server is holding port $PORT; stop it by hand."
+            rm -f "$PIDFILE"
+            return 1
+        fi
         print_warning "Server is not running"
         rm -f "$PIDFILE"
         return 0
     fi
-    kill "$pid" 2>/dev/null || true
+
+    # `uv run` runs the server as a child, so the recorded pid is the wrapper.
+    # Collect the children before signalling anything: once the wrapper exits
+    # they are reparented and can no longer be found from it, and an orphan
+    # keeps holding the port and the SQLite files.
+    local children
+    children=$(pgrep -P "$pid" 2>/dev/null || true)
+
+    # shellcheck disable=SC2086 # children is a list of pids
+    kill -TERM $children "$pid" 2>/dev/null || true
+
     local count=0
-    while kill -0 "$pid" 2>/dev/null && [ $count -lt 15 ]; do
+    while port_in_use && [ $count -lt 15 ]; do
         sleep 1
         count=$((count + 1))
     done
-    kill -9 "$pid" 2>/dev/null || true
+
+    # shellcheck disable=SC2086 # children is a list of pids
+    kill -KILL $children "$pid" 2>/dev/null || true
     rm -f "$PIDFILE"
+
+    if port_in_use; then
+        print_error "Port $PORT is still being served after stopping pid $pid"
+        return 1
+    fi
     print_success "Server stopped"
 }
 
