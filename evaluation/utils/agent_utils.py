@@ -5,6 +5,9 @@ from pathlib import Path
 from typing import Any
 
 from memmachine_server.common.configuration import Configuration
+from memmachine_server.common.configuration.episodic_config import (
+    LongTermMemoryConfPartial,
+)
 from memmachine_server.common.configuration.retrieval_config import OptimizedCoqConf
 from memmachine_server.common.episode_store.episode_model import episodes_to_string
 from memmachine_server.common.language_model.language_model import LanguageModel
@@ -19,7 +22,9 @@ from memmachine_server.episodic_memory.episodic_memory import (
 )
 from memmachine_server.episodic_memory.long_term_memory import (
     LongTermMemory,
-    LongTermMemoryParams,
+)
+from memmachine_server.episodic_memory.long_term_memory.service_locator import (
+    long_term_memory_params_from_config,
 )
 from memmachine_server.retrieval_agent.agents import (
     ChainOfQueryAgent,
@@ -418,7 +423,10 @@ async def init_memmachine_params(
     - Embedder:           ``episodic_memory.long_term_memory.embedder``
     - Reranker:           ``retrieval_agent.reranker`` (fallback:
                           ``episodic_memory.long_term_memory.reranker``)
-    - Vector graph store: ``episodic_memory.long_term_memory.vector_graph_store``
+    - Long-term memory:   ``episodic_memory.long_term_memory``, resolved through
+                          the same factory the server uses, so both the
+                          declarative (VectorGraphStore) and event
+                          (VectorStore + SegmentStore) backends work
     - Agent model:        ``retrieval_agent.llm_model``
     - Answer model:       ``retrieval_agent.answer_llm_model`` (falls back to ``llm_model``)
 
@@ -436,12 +444,12 @@ async def init_memmachine_params(
             "episodic_memory.long_term_memory is not configured in configuration.yml"
         )
 
-    embedder_id = ltm_conf.embedder
-    if not embedder_id:
+    # The embedder is resolved by the long-term memory factory below; check it
+    # here anyway so a missing id is reported against its config key.
+    if not ltm_conf.embedder:
         raise ValueError(
             "episodic_memory.long_term_memory.embedder is not set in configuration.yml"
         )
-    embedder = await resource_manager.get_embedder(embedder_id)
 
     reranker_id = conf.retrieval_agent.reranker or ltm_conf.reranker
     if not reranker_id:
@@ -450,16 +458,6 @@ async def init_memmachine_params(
             "episodic_memory.long_term_memory.reranker is set in configuration.yml"
         )
     reranker = await resource_manager.get_reranker(reranker_id)
-
-    vector_graph_store_id = ltm_conf.vector_graph_store
-    if not vector_graph_store_id:
-        raise ValueError(
-            "episodic_memory.long_term_memory.vector_graph_store is not set in "
-            "configuration.yml"
-        )
-    vector_graph_store = await resource_manager.get_vector_graph_store(
-        vector_graph_store_id
-    )
 
     agent_model_id = conf.retrieval_agent.llm_model
     if not agent_model_id:
@@ -474,13 +472,19 @@ async def init_memmachine_params(
 
     normalized_session_id = session_id or "evaluation_session"
 
+    # Resolve the backend through the server's factory rather than assembling
+    # DeclarativeBackendParams by hand, so an event-backend configuration
+    # (VectorStore + SegmentStore, which is what a SQLite setup uses) is
+    # accepted here as well. The overrides carry the values the benchmarks
+    # decide at run time; everything else comes from configuration.yml.
+    overrides = LongTermMemoryConfPartial(
+        session_id=normalized_session_id,
+        reranker=reranker_id,
+        message_sentence_chunking=message_sentence_chunking,
+    )
     long_term_memory = LongTermMemory(
-        LongTermMemoryParams(
-            session_id=normalized_session_id,
-            vector_graph_store=vector_graph_store,
-            embedder=embedder,
-            reranker=reranker,
-            message_sentence_chunking=message_sentence_chunking,
+        await long_term_memory_params_from_config(
+            overrides.merge(ltm_conf), resource_manager
         )
     )
     memory = EpisodicMemory(
