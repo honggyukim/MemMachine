@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import os
 from collections import defaultdict
 
 import json_repair
@@ -11,7 +12,12 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 load_dotenv()
-client = OpenAI()
+
+# The sibling restapiv2_locomo_search.py already reads these, so one set of
+# variables drives a whole benchmark run. Without them the defaults keep the
+# previous behaviour: the OpenAI endpoint and gpt-4o-mini.
+client = OpenAI(base_url=os.getenv("OPENAI_API_BASE") or None)
+JUDGE_MODEL = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")
 
 ACCURACY_PROMPT = """
 Your task is to label an answer to a question as ’CORRECT’ or ’WRONG’. You will be given the following data:
@@ -43,7 +49,7 @@ Just return the label CORRECT or WRONG in a json format with the key as "label".
 def evaluate_llm_judge(question, gold_answer, generated_answer) -> int:
     """Evaluate the generated answer against the gold answer using an LLM judge."""
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=JUDGE_MODEL,
         messages=[
             {
                 "role": "user",
