@@ -40,8 +40,31 @@ retrieval_agent:
   reranker: my_reranker_id
 
 semantic_memory:
+  # Off by default here. Semantic memory runs a background loop that calls the
+  # language model to derive profile features from stored messages, so leaving
+  # a development server up keeps a GPU busy long after the request that
+  # populated it. Ingesting a LoCoMo conversation queued about 1,200 messages,
+  # which took hours to work through. Set this to true when the profile
+  # features are what you are working on.
+  enabled: false
   llm_model: ollama_model
   embedding_model: ollama_embedder
+  # The derivation prompt carries the whole accumulated profile, so it grows
+  # with the profile and can outrun the context window. Ollama serves a model
+  # with num_ctx 4096 unless told otherwise, well under what the model itself
+  # supports, and the call then fails with:
+  #
+  #   openai.LengthFinishReasonError: Could not parse response content as the
+  #   length limit was reached - CompletionUsage(prompt_tokens=3926,
+  #   completion_tokens=170, total_tokens=4096)
+  #
+  # A failed message is never marked ingested and is not purged, so the loop
+  # retries it forever. If you enable this, give the model room:
+  #
+  #   ollama show <model> --modelfile > mf
+  #   echo 'PARAMETER num_ctx 32768' >> mf
+  #   ollama create <model>-32k -f mf
+  #
   # storage_backend must be set explicitly. The default of `auto` picks the
   # provider-specific path, which issues `CREATE EXTENSION vector` and fails on
   # SQLite. `vector_store` keeps feature metadata in the relational database and

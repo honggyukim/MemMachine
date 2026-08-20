@@ -161,6 +161,29 @@ the timings, but this was a single conversation. A ten-conversation run grows
 the vector index tenfold and deserves its own measurement before assuming the
 same holds.
 
+## Semantic memory is off
+
+The sample sets `semantic_memory.enabled: false`. Semantic memory runs a
+background loop that calls the language model to derive profile features from
+stored messages, and it is easy to leave running unnoticed: ingesting one
+LoCoMo conversation queued about 1,200 messages, which kept a GPU busy for
+hours after the benchmark itself had finished.
+
+Turn it on when the profile features are what you are working on, and give the
+model a large enough context first. The derivation prompt carries the whole
+accumulated profile, so it grows with the profile, while Ollama serves a model
+with `num_ctx` 4096 unless told otherwise:
+
+```
+openai.LengthFinishReasonError: Could not parse response content as the length
+limit was reached - CompletionUsage(prompt_tokens=3926, completion_tokens=170,
+total_tokens=4096)
+```
+
+A message that fails this way is never marked ingested and is not purged, so
+the loop retries it forever, roughly once a minute. Raising the context to
+32768 cleared the error and let the queue drain.
+
 ## Choosing a judge model
 
 Judging is harder than answering, and a model that is too small does not fail -

@@ -162,6 +162,29 @@ search는 문항당 5,000~7,000건의 메모리를 조회했지만 SQLite가 시
 드러나지 않았습니다. 다만 이것은 대화 1개 기준입니다. 10개를 돌리면 벡터
 인덱스가 10배가 되므로, 같은 결과를 가정하기 전에 별도 측정이 필요합니다.
 
+## semantic memory는 꺼져 있습니다
+
+샘플은 `semantic_memory.enabled: false`로 설정합니다. semantic memory는
+저장된 메시지에서 프로필 피처를 뽑아내려고 백그라운드에서 언어 모델을
+호출하는데, 켜져 있다는 걸 알아차리기 어렵습니다. LoCoMo 대화 하나를
+ingest했더니 약 1,200건이 대기열에 쌓였고, 벤치마크가 끝난 뒤에도 몇 시간
+동안 GPU를 점유했습니다.
+
+프로필 피처가 작업 대상일 때만 켜시고, 그 전에 모델 컨텍스트를 충분히
+확보하세요. 추출 프롬프트는 누적된 프로필 전체를 함께 보내기 때문에 프로필이
+커질수록 길어지는데, Ollama는 별도 지정이 없으면 `num_ctx` 4096으로
+서빙합니다.
+
+```
+openai.LengthFinishReasonError: Could not parse response content as the length
+limit was reached - CompletionUsage(prompt_tokens=3926, completion_tokens=170,
+total_tokens=4096)
+```
+
+이렇게 실패한 메시지는 ingested로 표시되지 않고 purge 대상에서도 빠지므로,
+루프가 약 1분마다 영원히 재시도합니다. 컨텍스트를 32768로 올리자 에러가
+사라지고 대기열이 줄기 시작했습니다.
+
 ## judge 모델 선택
 
 채점은 답변 생성보다 어려운 작업입니다. 너무 작은 모델은 실패하는 대신
