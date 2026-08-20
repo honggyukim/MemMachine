@@ -18,6 +18,10 @@ Ready to go? Follow these simple steps:
 **Note:** For the recommended retrieval-agent benchmark workflow and
 cross-benchmark command references, see `evaluation/README.md`.
 
+**Note:** The steps below need Neo4j. To run LoCoMo against a server backed by
+SQLite files only, with no containers and no OpenAI account, see
+[LOCOMO_SQLITE.md](LOCOMO_SQLITE.md).
+
 ### Step 1: Ingest a Conversation
 
 First, let's add conversation data to MemMachine. This only needs to be done once per test run.
