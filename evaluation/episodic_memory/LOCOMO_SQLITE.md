@@ -1,5 +1,7 @@
 # LoCoMo on SQLite, without containers
 
+*[한국어](LOCOMO_SQLITE.ko.md)*
+
 This walks through a full LoCoMo run - ingest, search, judge, score - against
 a MemMachine server backed by SQLite files, with a local Ollama providing the
 models. No Neo4j, no Postgres, no Docker, and no OpenAI account.

@@ -20,7 +20,7 @@ cross-benchmark command references, see `evaluation/README.md`.
 
 **Note:** The steps below need Neo4j. To run LoCoMo against a server backed by
 SQLite files only, with no containers and no OpenAI account, see
-[LOCOMO_SQLITE.md](LOCOMO_SQLITE.md).
+[LOCOMO_SQLITE.md](LOCOMO_SQLITE.md) ([한국어](LOCOMO_SQLITE.ko.md)).
 
 ### Step 1: Ingest a Conversation
 
