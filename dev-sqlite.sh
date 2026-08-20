@@ -56,7 +56,9 @@ Commands:
   smoke     Run an end-to-end store-and-search check (tools/dev_smoke.py).
             Takes an optional mode: 'rest' calls the v2 API over plain HTTP
             (default), 'client' does the same through the memmachine-client
-            library. Set SHOW_CURL=1 to print the equivalent curl commands
+            library, and 'embedded' drives MemMachine in-process with no
+            server at all. Set SHOW_CURL=1 to print the equivalent curl
+            commands
   reset     Delete the work directory and start over
   help      Show this message
 
@@ -70,6 +72,7 @@ Examples:
   ./dev-sqlite.sh start
   ./dev-sqlite.sh smoke
   ./dev-sqlite.sh smoke client
+  ./dev-sqlite.sh smoke embedded
   SHOW_CURL=1 ./dev-sqlite.sh smoke
   ./dev-sqlite.sh reset
 EOF
@@ -250,29 +253,48 @@ SMOKE_SCRIPT="$REPO_DIR/tools/dev_smoke.py"
 smoke_test() {
     local mode="${1:-rest}"
     case "$mode" in
-        rest|client) ;;
-        *) print_error "Unknown smoke mode: $mode (expected 'rest' or 'client')"; exit 1 ;;
+        rest|client|embedded) ;;
+        *) print_error "Unknown smoke mode: $mode (expected 'rest', 'client' or 'embedded')"; exit 1 ;;
     esac
 
-    server_pid >/dev/null || {
-        print_error "Server is not running. Run './dev-sqlite.sh start' first."
-        exit 1
-    }
-
-    local smoke=("$SMOKE_SCRIPT" --mode "$mode" --base-url "http://$HOST:$PORT"
+    local smoke=("$SMOKE_SCRIPT" --mode "$mode"
                  --org smoke --project "smoke_$$" --user smoke_user)
-    [ -n "${SHOW_CURL:-}" ] && smoke+=(--show-curl)
 
-    print_info "Running the $mode smoke test against http://$HOST:$PORT"
+    if [ "$mode" = embedded ]; then
+        # No server involved, but the databases are the same files, so a
+        # running server would be writing to them at the same time.
+        if server_pid >/dev/null || port_in_use; then
+            print_error "Stop the server first: embedded mode opens the same SQLite files."
+            exit 1
+        fi
+        check_prerequisites
+        prepare_work_dir
+        smoke+=(--config "$CONFIG")
+        print_info "Running the embedded smoke test against $CONFIG"
+    else
+        server_pid >/dev/null || {
+            print_error "Server is not running. Run './dev-sqlite.sh start' first."
+            exit 1
+        }
+        smoke+=(--base-url "http://$HOST:$PORT")
+        [ -n "${SHOW_CURL:-}" ] && smoke+=(--show-curl)
+        print_info "Running the $mode smoke test against http://$HOST:$PORT"
+    fi
 
     print_info "Storing episodes and searching short-term memory ..."
     "${RUN[@]}" python "${smoke[@]}" ingest
 
-    print_info "Restarting to clear short-term memory ..."
-    stop_server >/dev/null
-    start_server >/dev/null
+    if [ "$mode" = embedded ]; then
+        # Short-term memory lives in the process, so the next invocation
+        # starts with an empty one. Nothing to restart.
+        print_info "Searching long-term memory in a fresh process ..."
+    else
+        print_info "Restarting to clear short-term memory ..."
+        stop_server >/dev/null
+        start_server >/dev/null
+        print_info "Searching long-term memory ..."
+    fi
 
-    print_info "Searching long-term memory ..."
     "${RUN[@]}" python "${smoke[@]}" search
 
     print_success "Smoke test passed ($mode mode)"

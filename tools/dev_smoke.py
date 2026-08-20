@@ -1,28 +1,40 @@
-"""End-to-end smoke check for a MemMachine development server.
+"""End-to-end smoke check for MemMachine.
 
-Creates a project, stores a few episodes and searches them back, either by
-calling the v2 REST API directly or by going through the memmachine-client
-library. Both modes drive the same server and print the same report.
+Creates a project, stores a few episodes and searches them back. Three modes
+do this over different surfaces and print the same report:
 
-Normally invoked through ``dev-sqlite.sh smoke``, which also restarts the
-server between the two searches. See that script for why the restart matters.
-It can also be pointed at any running server, for example::
+``rest``
+    Calls the v2 REST API of a running server with plain HTTP requests.
+``client``
+    Same steps through the memmachine-client library.
+``embedded``
+    Drives the MemMachine class in this process. No server, no HTTP.
+
+Normally invoked through ``dev-sqlite.sh smoke``. It can also be run directly
+against any running server, or, for ``embedded``, against a configuration
+file::
 
     uv run python tools/dev_smoke.py ingest --base-url http://127.0.0.1:8080
     uv run python tools/dev_smoke.py search --mode client --project my_project
+    uv run python tools/dev_smoke.py ingest --mode embedded --config configuration.yml
 
 Run both steps in the same mode. The REST calls pass ``metadata`` in the
 request, which selects the session, while the client library attaches it to
 each message and turns it into a search filter, staying in the default
 session. Each mode therefore finds its own episodes but not the other's.
+
+``embedded`` opens the configured databases directly, so stop a server using
+the same SQLite files first rather than having both write to them.
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import shlex
 import sys
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -57,10 +69,10 @@ class RestRunner:
     filled in, ready to paste.
     """
 
-    def __init__(self, base_url: str, meta: dict[str, Any], *, show_curl: bool):
-        self._base_url = base_url.rstrip("/")
+    def __init__(self, args: argparse.Namespace, meta: dict[str, Any]):
+        self._base_url = args.base_url.rstrip("/")
         self._meta = meta
-        self._show_curl = show_curl
+        self._show_curl = args.show_curl
 
     def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         url = f"{self._base_url}/api/v2{path}"
@@ -115,11 +127,10 @@ class RestRunner:
 class ClientRunner:
     """Performs the same steps through the memmachine-client library."""
 
-    def __init__(self, base_url: str, meta: dict[str, Any], *, show_curl: bool):
+    def __init__(self, args: argparse.Namespace, meta: dict[str, Any]):
         from memmachine_client import MemMachineClient
 
-        _ = show_curl  # the client builds its own requests
-        self._client = MemMachineClient(base_url=base_url, timeout=TIMEOUT)
+        self._client = MemMachineClient(base_url=args.base_url, timeout=TIMEOUT)
         self._project = self._client.get_or_create_project(
             org_id=meta["org_id"], project_id=meta["project_id"]
         )
@@ -140,7 +151,74 @@ class ClientRunner:
         report(episodic.model_dump())
 
 
-RUNNERS = {"rest": RestRunner, "client": ClientRunner}
+@dataclass(frozen=True)
+class _Session:
+    """The three attributes MemMachine.SessionData asks for."""
+
+    org_id: str
+    project_id: str
+
+    @property
+    def session_key(self) -> str:
+        return f"{self.org_id}/{self.project_id}"
+
+
+class EmbeddedRunner:
+    """Drives the MemMachine class directly, with no server in between.
+
+    Useful when the memory core is what is under test: there is no port to
+    take, no process to wait for, exceptions arrive intact rather than as a
+    500, and a debugger attaches to the one process that does the work.
+
+    MemMachine.add_episodes writes through the episode store, which assigns
+    the ids the event backend later looks up, so this behaves like the server
+    rather than like the lower-level EpisodicMemory API.
+    """
+
+    def __init__(self, args: argparse.Namespace, meta: dict[str, Any]):
+        from memmachine_server.common.configuration import Configuration
+        from memmachine_server.main.memmachine import MemMachine
+
+        if not args.config:
+            raise SystemExit(
+                "embedded mode needs --config pointing at a configuration.yml"
+            )
+
+        self._loop = asyncio.new_event_loop()
+        self._session = _Session(org_id=meta["org_id"], project_id=meta["project_id"])
+        self._memmachine = MemMachine(Configuration.load_yml_file(args.config))
+        self._loop.run_until_complete(self._memmachine.start())
+
+    def create_project(self) -> None:
+        # add_episodes creates what it needs; there is no separate call.
+        return
+
+    def store(self) -> None:
+        from memmachine_server.common.episode_store import EpisodeEntry
+
+        entries = [
+            EpisodeEntry(content=episode, producer_id="user", producer_role="user")
+            for episode in EPISODES
+        ]
+        self._loop.run_until_complete(
+            self._memmachine.add_episodes(self._session, entries)
+        )
+
+    def search(self) -> None:
+        response = self._loop.run_until_complete(
+            self._memmachine.query_search(self._session, query=QUERY, limit=TOP_K)
+        )
+        episodic = response.episodic_memory
+        if episodic is None:
+            raise RuntimeError("search returned no episodic memory")
+        report(episodic.model_dump())
+
+    def close(self) -> None:
+        self._loop.run_until_complete(self._memmachine.stop())
+        self._loop.close()
+
+
+RUNNERS = {"rest": RestRunner, "client": ClientRunner, "embedded": EmbeddedRunner}
 
 
 def main() -> int:
@@ -148,6 +226,10 @@ def main() -> int:
     parser.add_argument("step", choices=("ingest", "search"))
     parser.add_argument("--mode", choices=tuple(RUNNERS), default="rest")
     parser.add_argument("--base-url", default="http://127.0.0.1:8080")
+    parser.add_argument(
+        "--config",
+        help="path to configuration.yml (embedded mode)",
+    )
     parser.add_argument("--org", default="smoke")
     parser.add_argument("--project", default="smoke")
     parser.add_argument("--user", default="smoke_user")
@@ -163,15 +245,19 @@ def main() -> int:
         "project_id": args.project,
         "metadata": {"user_id": args.user},
     }
-    runner = RUNNERS[args.mode](args.base_url, meta, show_curl=args.show_curl)
+    runner = RUNNERS[args.mode](args, meta)
+    try:
+        if args.step == "ingest":
+            runner.create_project()
+            print(f"    created project {args.org}/{args.project}")
+            runner.store()
+            print(f"    stored {len(EPISODES)} episodes")
 
-    if args.step == "ingest":
-        runner.create_project()
-        print(f"    created project {args.org}/{args.project}")
-        runner.store()
-        print(f"    stored {len(EPISODES)} episodes")
-
-    runner.search()
+        runner.search()
+    finally:
+        close = getattr(runner, "close", None)
+        if close is not None:
+            close()
     return 0
 
 

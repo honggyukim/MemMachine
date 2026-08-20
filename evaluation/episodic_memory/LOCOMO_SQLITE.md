@@ -184,6 +184,22 @@ A message that fails this way is never marked ingested and is not purged, so
 the loop retries it forever, roughly once a minute. Raising the context to
 32768 cleared the error and let the queue drain.
 
+## Testing without a server
+
+`dev-sqlite.sh smoke` has an `embedded` mode that skips HTTP entirely and
+drives the `MemMachine` class in the same process:
+
+```sh
+./dev-sqlite.sh stop        # embedded opens the same SQLite files
+./dev-sqlite.sh smoke embedded
+```
+
+There is no port to take and no process to wait for, exceptions arrive intact
+instead of as a 500, and a debugger attaches to the one process doing the
+work. It needs no restart between the two searches either: short-term memory
+lives in the process, so the second invocation starts with an empty one. The
+scores it reports are the same as the other two modes.
+
 ## Choosing a judge model
 
 Judging is harder than answering, and a model that is too small does not fail -
