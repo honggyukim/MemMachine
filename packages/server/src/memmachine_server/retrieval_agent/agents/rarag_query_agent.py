@@ -34,10 +34,17 @@ try:
     )
 
     DECOMPOSER_AVAILABLE = True
-    logger.info("Decomposer imported successfully!")
+    logger.debug("Multi-hop decomposer available.")
 except ImportError:
     DECOMPOSER_AVAILABLE = False
-    logger.exception("Decomposer import FAILED")
+    # Debug, not exception: the group is optional and the fallback above is the
+    # documented behaviour, so this is a configuration fact rather than a
+    # failure. Logging it as an error printed a traceback on every start for
+    # anyone who had not installed the group.
+    logger.debug(
+        "Multi-hop decomposer unavailable; RaragQueryAgent will split queries "
+        "with the LLM. Install it with: uv sync --group multihop"
+    )
 
 # Citation: Luo et al. (2025), "Agent Lightning: Train ANY AI Agents with
 # Reinforcement Learning", arXiv:2508.03680.
