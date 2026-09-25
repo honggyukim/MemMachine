@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 import pytest_asyncio
 from neo4j import AsyncGraphDatabase
-from testcontainers.neo4j import Neo4jContainer
+from testcontainers.community.neo4j import Neo4jContainer
 
 from memmachine_server.common.episode_store import Episode
 from memmachine_server.common.vector_graph_store.neo4j_vector_graph_store import (

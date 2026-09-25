@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 from neo4j import AsyncGraphDatabase
-from testcontainers.neo4j import Neo4jContainer
+from testcontainers.community.neo4j import Neo4jContainer
 
 from memmachine_server.common.filter.filter_parser import (
     And as FilterAnd,

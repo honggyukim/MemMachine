@@ -11,10 +11,10 @@ from neo4j import AsyncGraphDatabase
 from neo4j.exceptions import ServiceUnavailable
 from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from testcontainers.community.neo4j import Neo4jContainer
+from testcontainers.community.postgres import PostgresContainer
+from testcontainers.community.qdrant import QdrantContainer
 from testcontainers.core.waiting_utils import wait_container_is_ready
-from testcontainers.neo4j import Neo4jContainer
-from testcontainers.postgres import PostgresContainer
-from testcontainers.qdrant import QdrantContainer
 
 from memmachine_server.common.embedder.openai_embedder import (
     OpenAIEmbedder,
